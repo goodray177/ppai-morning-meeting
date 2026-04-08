@@ -402,7 +402,8 @@ const App = () => {
     }
     
     const shuffled = [...pool].sort(() => Math.random() - 0.5);
-    const upcomingSessions = sessions.filter(date => date >= lotteryStartDate);
+    // 取得未被刪除且大於等於開始日期的場次
+    const upcomingSessions = sessions.filter(date => date >= lotteryStartDate && !sessionMetadata[date]?.isDeleted);
     const results = [];
 
     const drawCount = Math.min(shuffled.length, upcomingSessions.length);
@@ -459,6 +460,24 @@ const App = () => {
     } catch (e) { console.error(e); showToast("儲存失敗", "error"); }
   };
 
+  const deleteSessionDate = (date) => {
+    if (!user) return;
+    setConfirmAction({
+      title: "刪除場次",
+      message: `確定要刪除 ${date} 的場次嗎？這將會從統計與抽籤列表中隱藏此日期。`,
+      onConfirm: async () => {
+        try {
+          const ref = doc(db, 'artifacts', appId, 'public', 'data', 'sessionMetadata', date);
+          await setDoc(ref, { isDeleted: true }, { merge: true });
+          showToast(`已隱藏 ${date} 的場次`);
+        } catch (e) { 
+          console.error(e); 
+          showToast("刪除場次失敗", "error"); 
+        }
+      }
+    });
+  };
+
   const toggleLeave = async (personId, date) => {
     if (!user) return;
     try {
@@ -508,6 +527,10 @@ const App = () => {
     const mandatoryCount = people.filter(p => p.isMandatory).length;
     const groups = {};
     sessions.forEach(date => {
+      const meta = sessionMetadata[date] || {};
+      // 若該場次被標記為刪除，則直接跳過不顯示於統計表中
+      if (meta.isDeleted) return;
+
       const month = getMonthName(date);
       if (!groups[month]) groups[month] = [];
       const dayCheckins = checkins.filter(c => c.date === date);
@@ -518,7 +541,6 @@ const App = () => {
       const rate = target > 0 ? (dayCheckins.length / target) * 100 : 0;
       const grossRate = mandatoryCount > 0 ? (dayCheckins.length / mandatoryCount) * 100 : 0;
       
-      const meta = sessionMetadata[date] || {};
       groups[month].push({ 
         date, 
         mandatoryCount, 
@@ -690,7 +712,7 @@ const App = () => {
                             <th className="px-4 py-4">分享者</th>
                             <th className="px-4 py-4 text-center">實到 / 應到</th>
                             <th className="px-4 py-4 text-center">請假人數</th>
-                            <th className="px-4 py-4 text-center">出席率(扣除請假)</th>
+                            <th className="px-4 py-4 text-center">出席率</th>
                             <th className="px-4 py-4 text-center">總出席率</th>
                             <th className="px-4 py-4 text-right">管理</th>
                           </tr>
@@ -729,7 +751,14 @@ const App = () => {
                               </td>
                               <td className="px-4 py-4 text-center font-black text-emerald-600">{s.rate}%</td>
                               <td className="px-4 py-4 text-center font-black text-slate-400">{s.grossRate}%</td>
-                              <td className="px-4 py-4 text-right"><button onClick={()=>{setSelectedDate(s.date);setActiveTab('leaves');}} className="text-blue-600 font-black text-xs hover:underline">管理請假</button></td>
+                              <td className="px-4 py-4 text-right">
+                                <div className="flex items-center justify-end gap-3">
+                                  <button onClick={()=>{setSelectedDate(s.date);setActiveTab('leaves');}} className="text-blue-600 font-black text-xs hover:underline">管理請假</button>
+                                  <button onClick={()=>deleteSessionDate(s.date)} className="text-slate-300 hover:text-rose-500 transition-colors" title="刪除此場次">
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
