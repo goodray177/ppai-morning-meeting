@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { 
@@ -522,6 +522,41 @@ const App = () => {
     } catch (error) { console.error(error); showToast("撤回失敗", "error"); }
   };
 
+  // --- 新增：手動刪除單筆簽到/請假紀錄 ---
+  const deleteCheckinRecord = (recordId) => {
+    if (!user) return;
+    setConfirmAction({
+      title: "刪除紀錄",
+      message: "確定要刪除這筆簽到紀錄嗎？",
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'checkins', recordId));
+          showToast("已刪除該筆簽到紀錄");
+        } catch (e) {
+          console.error(e);
+          showToast("刪除失敗", "error");
+        }
+      }
+    });
+  };
+
+  const deleteLeaveRecord = (recordId) => {
+    if (!user) return;
+    setConfirmAction({
+      title: "刪除紀錄",
+      message: "確定要刪除這筆請假紀錄嗎？",
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leaves', recordId));
+          showToast("已刪除該筆請假紀錄");
+        } catch (e) {
+          console.error(e);
+          showToast("刪除失敗", "error");
+        }
+      }
+    });
+  };
+
   // --- 統計計算 ---
   const groupedStats = useMemo(() => {
     const mandatoryCount = people.filter(p => p.isMandatory).length;
@@ -911,7 +946,12 @@ const App = () => {
                     return (
                       <div key={c.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 shadow-sm">
                         <span className="font-black text-slate-800 flex items-center gap-3"><span className="text-[10px] text-slate-300 w-4">{i+1}</span>{p?.name || "未知人員"}</span>
-                        <span className="text-xs text-blue-600 font-mono font-black">{formatTime(c.timestamp)}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-blue-600 font-mono font-black">{formatTime(c.timestamp)}</span>
+                          <button onClick={() => deleteCheckinRecord(c.id)} className="text-slate-300 hover:text-rose-500 transition-colors" title="刪除此紀錄">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -938,7 +978,12 @@ const App = () => {
                     return (
                       <div key={l.id} className="flex items-center justify-between p-4 bg-rose-50/30 rounded-2xl border border-rose-100/50 shadow-sm">
                         <span className="font-black text-slate-800 flex items-center gap-3"><span className="text-[10px] text-rose-200 w-4">{i+1}</span>{p?.name || "未知人員"}</span>
-                        <span className="text-[10px] bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-black uppercase">標記請假</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-black uppercase">標記請假</span>
+                          <button onClick={() => deleteLeaveRecord(l.id)} className="text-rose-300 hover:text-rose-600 transition-colors" title="刪除此紀錄">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
