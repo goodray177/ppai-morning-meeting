@@ -102,6 +102,16 @@ const getMonthName = (dateStr) => {
   return `${parts[0]}年 ${parseInt(parts[1])}月`;
 };
 
+// 將日期字串轉換為帶有星期的格式
+const getDayOfWeekStr = (dateStr) => {
+  if (!dateStr) return "";
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  const date = new Date(parts[0], parseInt(parts[1]) - 1, parts[2]);
+  const days = ['日', '一', '二', '三', '四', '五', '六'];
+  return `${dateStr} (${days[date.getDay()]})`;
+};
+
 const getAllSessions = () => {
   const sessions = [];
   const currentYear = new Date().getFullYear();
@@ -154,6 +164,7 @@ const App = () => {
   const [tempEditValue, setTempEditValue] = useState('');
   const [pendingCancel, setPendingCancel] = useState(null); 
   const [viewingCheckinsDate, setViewingCheckinsDate] = useState(null); 
+  const [checkinModalTab, setCheckinModalTab] = useState('checkedIn'); 
   const [viewingLeavesDate, setViewingLeavesDate] = useState(null); 
   
   // 自定義浮窗與提示
@@ -226,9 +237,9 @@ const App = () => {
     setTimeout(() => setToast(null), 3500);
   };
 
-  // --- 分頁導航權限驗證 ---
+  // --- 分頁導航權限驗證 (更新: 數據統計免密碼) ---
   const handleTabClick = (tabId) => {
-    if (tabId === 'checkin') {
+    if (tabId === 'checkin' || tabId === 'dashboard') {
       setActiveTab(tabId);
     } else {
       if (isAuthenticatedAdmin) {
@@ -244,7 +255,7 @@ const App = () => {
     e.preventDefault();
     if (adminPasswordInput === '9032027') {
       setIsAuthenticatedAdmin(true);
-      setActiveTab(targetAdminTab);
+      if (targetAdminTab) setActiveTab(targetAdminTab);
       setShowPasswordModal(false);
       setAdminPasswordInput('');
       showToast("管理員身分驗證成功！");
@@ -326,7 +337,7 @@ const App = () => {
     let csvContent = "\uFEFF日期,場次名稱,分享者,實到人數,應到人數,請假人數,出席率(扣除請假),總出席率\n";
     sortedMonthKeys.forEach(month => {
       groupedStats[month].forEach(row => {
-        csvContent += `${row.date},${row.sessionName || ""},${row.presenter || ""},${row.checkinCount},${row.mandatoryCount},${row.leaveCount},${row.rate}%,${row.grossRate}%\n`;
+        csvContent += `${getDayOfWeekStr(row.date)},${row.sessionName || ""},${row.presenter || ""},${row.checkinCount},${row.mandatoryCount},${row.leaveCount},${row.rate}%,${row.grossRate}%\n`;
       });
     });
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -403,7 +414,6 @@ const App = () => {
     }
     
     const shuffled = [...pool].sort(() => Math.random() - 0.5);
-    // 取得未被刪除且大於等於開始日期的場次
     const upcomingSessions = sessions.filter(date => date >= lotteryStartDate && !sessionMetadata[date]?.isDeleted);
     const results = [];
 
@@ -465,7 +475,7 @@ const App = () => {
     if (!user) return;
     setConfirmAction({
       title: "刪除場次",
-      message: `確定要刪除 ${date} 的場次嗎？這將會從統計與抽籤列表中隱藏此日期。`,
+      message: `確定要刪除 ${getDayOfWeekStr(date)} 的場次嗎？這將會從統計與抽籤列表中隱藏此日期。`,
       onConfirm: async () => {
         try {
           const ref = doc(db, 'artifacts', appId, 'public', 'data', 'sessionMetadata', date);
@@ -495,7 +505,7 @@ const App = () => {
     const person = people.find(p => (p.email || "").toLowerCase().split('@')[0] === inputPrefix);
     if (person) {
       setIdentifiedPerson(person);
-      if (checkins.some(c => c.personId === person.id && c.date === todayStr)) setCheckinStep('success');
+      if (checkins.some(c => c.personId === p.id && c.date === todayStr)) setCheckinStep('success');
       else setCheckinStep('confirm');
     } else setCheckinStep('error');
   };
@@ -523,7 +533,7 @@ const App = () => {
     } catch (error) { console.error(error); showToast("撤回失敗", "error"); }
   };
 
-  // --- 新增：手動刪除單筆簽到/請假紀錄 ---
+  // --- 手動刪除單筆紀錄 ---
   const deleteCheckinRecord = (recordId) => {
     if (!user) return;
     setConfirmAction({
@@ -564,7 +574,6 @@ const App = () => {
     const groups = {};
     sessions.forEach(date => {
       const meta = sessionMetadata[date] || {};
-      // 若該場次被標記為刪除，則直接跳過不顯示於統計表中
       if (meta.isDeleted) return;
 
       const month = getMonthName(date);
@@ -610,6 +619,15 @@ const App = () => {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><RefreshCw className="animate-spin text-blue-600" size={32} /></div>;
 
+  // 計算特定日期的出席與缺席名單
+  const currentCheckins = viewingCheckinsDate ? checkins.filter(c => c.date === viewingCheckinsDate).sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp)) : [];
+  const absentPeople = viewingCheckinsDate ? people.filter(p => {
+    if (!p.isMandatory) return false;
+    const hasCheckedIn = checkins.some(c => c.personId === p.id && c.date === viewingCheckinsDate);
+    const isOnLeave = leaves.some(l => l.personId === p.id && l.date === viewingCheckinsDate);
+    return !hasCheckedIn && !isOnLeave;
+  }) : [];
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans relative pb-24">
       
@@ -618,7 +636,7 @@ const App = () => {
         <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-3">
             <div className="bg-blue-600 p-2 rounded-xl text-white shadow-lg"><Clock size={24} /></div>
-            <div><h1 className="text-xl font-bold tracking-tight text-slate-800">AI 早會系統</h1><p className="text-xs text-slate-400 font-medium">{todayStr}</p></div>
+            <div><h1 className="text-xl font-bold tracking-tight text-slate-800">AI 早會系統</h1><p className="text-xs text-slate-400 font-medium">今天：{getDayOfWeekStr(todayStr)}</p></div>
           </div>
           <nav className="flex bg-slate-100 p-1 rounded-2xl">
             {[
@@ -632,7 +650,7 @@ const App = () => {
                 onClick={() => handleTabClick(tab.id)} 
                 className={`px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${activeTab === tab.id ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
               >
-                {activeTab === tab.id && tab.id !== 'checkin' && isAuthenticatedAdmin && <Lock size={12} className="opacity-50" />}
+                {activeTab === tab.id && ['lottery', 'people'].includes(tab.id) && !isAuthenticatedAdmin && <Lock size={12} className="opacity-50" />}
                 <tab.icon size={16} /> {tab.label}
               </button>
             ))}
@@ -648,7 +666,7 @@ const App = () => {
             <div className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-100">
               <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-10 text-white text-center">
                 <Calendar className="mx-auto mb-4 opacity-90" size={56} />
-                <h2 className="text-3xl font-black mb-1">{todayStr}</h2>
+                <h2 className="text-3xl font-black mb-1">{getDayOfWeekStr(todayStr)}</h2>
                 <p className="text-blue-100 text-sm font-bold mb-4">{sessionMetadata[todayStr]?.title || "今日早會"}</p>
                 {sessionMetadata[todayStr]?.presenter && <div className="inline-block bg-white/20 px-4 py-1.5 rounded-full text-sm font-black mb-2 shadow-sm">分享者：{sessionMetadata[todayStr].presenter}</div>}
               </div>
@@ -698,13 +716,13 @@ const App = () => {
           </div>
         )}
 
-        {/* --- 數據統計分頁 --- */}
-        {activeTab === 'dashboard' && isAuthenticatedAdmin && (
+        {/* --- 數據統計分頁 (所有人皆可見) --- */}
+        {activeTab === 'dashboard' && (
           <div className="space-y-6 animate-in slide-in-from-bottom-8 duration-500">
             <div className="flex justify-between items-end px-2">
               <div>
                 <h2 className="text-2xl font-black text-slate-800">出席數據報表</h2>
-                <p className="text-slate-400 text-sm">數據按月分組，點擊「場次名稱/分享者」可直接編輯</p>
+                <p className="text-slate-400 text-sm">數據按月分組，點擊欄位內容可編輯 (需管理員權限)</p>
               </div>
               <div className="flex gap-2">
                 <button onClick={handleExportFullData} className="bg-slate-900 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-lg shadow-slate-200 hover:bg-slate-800 transition-all"><Database size={18} /> JSON 備份</button>
@@ -748,7 +766,7 @@ const App = () => {
                             <th className="px-4 py-4">分享者</th>
                             <th className="px-4 py-4 text-center">實到 / 應到</th>
                             <th className="px-4 py-4 text-center">請假人數</th>
-                            <th className="px-4 py-4 text-center">出席率</th>
+                            <th className="px-4 py-4 text-center">出席率(扣除請假)</th>
                             <th className="px-4 py-4 text-center">總出席率</th>
                             <th className="px-4 py-4 text-right">管理</th>
                           </tr>
@@ -756,41 +774,91 @@ const App = () => {
                         <tbody className="divide-y divide-slate-50">
                           {groupedStats[month].map(s => (
                             <tr key={s.date} className={s.date === todayStr ? "bg-blue-50/40" : "hover:bg-slate-50 transition-colors"}>
-                              <td className="px-4 py-4 font-bold text-slate-700">{s.date}</td>
+                              <td className="px-4 py-4 font-bold text-slate-700 whitespace-nowrap">{getDayOfWeekStr(s.date)}</td>
+                              
+                              {/* 編輯場次名稱 */}
                               <td className="px-4 py-4">
                                 {editingDate?.date === s.date && editingDate?.field === 'title' ? (
-                                  <div className="flex items-center gap-2"><input autoFocus value={tempEditValue} onChange={e=>setTempEditValue(e.target.value)} onKeyDown={e=>e.key==='Enter'&&saveMetadataField(s.date, 'title')} className="border border-blue-200 rounded-lg px-2 py-1 text-sm outline-none w-full shadow-inner" /><button onClick={()=>saveMetadataField(s.date, 'title')} className="text-emerald-500 hover:bg-emerald-50 p-1 rounded"><Check size={16}/></button></div>
+                                  <div className="flex items-center gap-2">
+                                    <input autoFocus value={tempEditValue} onChange={e=>setTempEditValue(e.target.value)} onKeyDown={e=>e.key==='Enter'&&saveMetadataField(s.date, 'title')} className="border border-blue-200 rounded-lg px-2 py-1 text-sm outline-none w-full shadow-inner" />
+                                    <button onClick={()=>saveMetadataField(s.date, 'title')} className="text-emerald-500 hover:bg-emerald-50 p-1 rounded"><Check size={16}/></button>
+                                  </div>
                                 ) : (
-                                  <div className="flex items-center gap-2 group min-h-[32px] cursor-pointer" onClick={()=>{setEditingDate({date: s.date, field: 'title'}); setTempEditValue(s.sessionName);}}>
+                                  <div className="flex items-center gap-2 group min-h-[32px] cursor-pointer" onClick={()=>{
+                                    if (!isAuthenticatedAdmin) {
+                                      setTargetAdminTab('dashboard');
+                                      setShowPasswordModal(true);
+                                      return;
+                                    }
+                                    setEditingDate({date: s.date, field: 'title'}); setTempEditValue(s.sessionName);
+                                  }}>
                                     <span className={s.sessionName ? "text-slate-700 font-bold" : "text-slate-300 italic text-xs"}>{s.sessionName || "點擊編輯"}</span>
                                     <Edit3 size={12} className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                                   </div>
                                 )}
                               </td>
+
+                              {/* 編輯分享者 */}
                               <td className="px-4 py-4">
                                 {editingDate?.date === s.date && editingDate?.field === 'presenter' ? (
-                                  <div className="flex items-center gap-2"><input autoFocus value={tempEditValue} onChange={e=>setTempEditValue(e.target.value)} onKeyDown={e=>e.key==='Enter'&&saveMetadataField(s.date, 'presenter')} className="border border-blue-200 rounded-lg px-2 py-1 text-sm outline-none w-full shadow-inner" /><button onClick={()=>saveMetadataField(s.date, 'presenter')} className="text-emerald-500 hover:bg-emerald-50 p-1 rounded"><Check size={16}/></button></div>
+                                  <div className="flex items-center gap-2">
+                                    <input autoFocus value={tempEditValue} onChange={e=>setTempEditValue(e.target.value)} onKeyDown={e=>e.key==='Enter'&&saveMetadataField(s.date, 'presenter')} className="border border-blue-200 rounded-lg px-2 py-1 text-sm outline-none w-full shadow-inner" />
+                                    <button onClick={()=>saveMetadataField(s.date, 'presenter')} className="text-emerald-500 hover:bg-emerald-50 p-1 rounded"><Check size={16}/></button>
+                                  </div>
                                 ) : (
-                                  <div className="flex items-center gap-2 group min-h-[32px] cursor-pointer" onClick={()=>{setEditingDate({date: s.date, field: 'presenter'}); setTempEditValue(s.presenter);}}>
-                                    <span className={s.presenter ? "text-blue-600 font-black" : "text-slate-300 italic text-xs"}>{s.presenter || "點擊編輯"}</span>
+                                  <div className="flex items-center gap-2 group min-h-[32px] cursor-pointer" onClick={()=>{
+                                    if (!isAuthenticatedAdmin) {
+                                      setTargetAdminTab('dashboard');
+                                      setShowPasswordModal(true);
+                                      return;
+                                    }
+                                    setEditingDate({date: s.date, field: 'presenter'}); setTempEditValue(s.presenter);
+                                  }}>
+                                    <span className={s.presenter ? "text-blue-600 font-black" : "text-slate-300 italic text-xs"}>{s.presenter || "未指定"}</span>
                                     <Edit3 size={12} className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                                   </div>
                                 )}
                               </td>
+
+                              {/* 檢視簽到 */}
                               <td className="px-4 py-4 text-center">
-                                <button onClick={()=>setViewingCheckinsDate(s.date)} className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-xl text-xs font-black mx-auto flex items-center gap-1 hover:bg-blue-600 hover:text-white transition-all shadow-sm"><UserCheck size={12}/> {s.checkinCount} / {s.mandatoryCount}</button>
+                                <button onClick={()=>{setViewingCheckinsDate(s.date); setCheckinModalTab('checkedIn');}} className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-xl text-xs font-black mx-auto flex items-center gap-1 hover:bg-blue-600 hover:text-white transition-all shadow-sm">
+                                  <UserCheck size={12}/> {s.checkinCount} / {s.mandatoryCount}
+                                </button>
                               </td>
+
+                              {/* 檢視請假 */}
                               <td className="px-4 py-4 text-center">
                                 <button onClick={()=>setViewingLeavesDate(s.date)} className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all mx-auto flex items-center gap-1 shadow-sm ${s.leaveCount > 0 ? 'bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white' : 'bg-slate-50 text-slate-400 cursor-default'}`}>
                                   <UserMinus size={12} /> {s.leaveCount}
                                 </button>
                               </td>
+
                               <td className="px-4 py-4 text-center font-black text-emerald-600">{s.rate}%</td>
                               <td className="px-4 py-4 text-center font-black text-slate-400">{s.grossRate}%</td>
+                              
                               <td className="px-4 py-4 text-right">
                                 <div className="flex items-center justify-end gap-3">
-                                  <button onClick={()=>{setSelectedDate(s.date);setActiveTab('leaves');}} className="text-blue-600 font-black text-xs hover:underline">管理請假</button>
-                                  <button onClick={()=>deleteSessionDate(s.date)} className="text-slate-300 hover:text-rose-500 transition-colors" title="刪除此場次">
+                                  {/* 管理請假 (須密碼) */}
+                                  <button onClick={()=>{
+                                    setSelectedDate(s.date);
+                                    if (!isAuthenticatedAdmin) {
+                                      setTargetAdminTab('leaves');
+                                      setShowPasswordModal(true);
+                                    } else {
+                                      setActiveTab('leaves');
+                                    }
+                                  }} className="text-blue-600 font-black text-xs hover:underline">管理請假</button>
+                                  
+                                  {/* 刪除場次 (須密碼) */}
+                                  <button onClick={()=>{
+                                    if (!isAuthenticatedAdmin) {
+                                      setTargetAdminTab('dashboard');
+                                      setShowPasswordModal(true);
+                                      return;
+                                    }
+                                    deleteSessionDate(s.date);
+                                  }} className="text-slate-300 hover:text-rose-500 transition-colors" title="刪除此場次">
                                     <Trash2 size={14} />
                                   </button>
                                 </div>
@@ -840,7 +908,7 @@ const App = () => {
             <div className="lg:col-span-2 space-y-6">
               <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm min-h-[500px]">
                 <div className="flex justify-between items-center mb-8">
-                  <h3 className="font-black text-xl text-slate-800">分配預覽</h3>
+                  <h3 className="font-black text-xl text-slate-800">分配結果預覽</h3>
                   {lotteryResults.length > 0 && (
                     <button onClick={confirmLotteryResults} disabled={syncLoading} className="bg-emerald-500 text-white px-6 py-2.5 rounded-xl font-black flex items-center gap-2 hover:bg-emerald-600 shadow-lg shadow-emerald-100 transition-all active:scale-95">
                       {syncLoading ? <RefreshCw className="animate-spin" /> : <Save size={18} />} 確定加入統計
@@ -852,7 +920,7 @@ const App = () => {
                     {lotteryResults.map((res, i) => (
                       <div key={i} className="flex items-center justify-between p-5 bg-slate-50 rounded-2xl border border-slate-100">
                         <div className="bg-white w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black text-slate-400 mr-3 shadow-sm">{i+1}</div>
-                        <div className="flex-1"><p className="text-[10px] font-black text-blue-500 uppercase tracking-tighter">{res.date}</p><p className="text-lg font-black text-slate-800">{res.personName}</p></div>
+                        <div className="flex-1"><p className="text-[10px] font-black text-blue-500 uppercase tracking-tighter">{getDayOfWeekStr(res.date)}</p><p className="text-lg font-black text-slate-800">{res.personName}</p></div>
                       </div>
                     ))}
                   </div>
@@ -915,7 +983,7 @@ const App = () => {
         {/* --- 請假管理分頁 --- */}
         {activeTab === 'leaves' && isAuthenticatedAdmin && (
           <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in zoom-in-95 duration-500">
-             <div className="flex items-center justify-between"><h3 className="text-2xl font-black flex items-center gap-3 text-rose-500"><Calendar /> 請假管理 ({selectedDate})</h3></div>
+             <div className="flex items-center justify-between"><h3 className="text-2xl font-black flex items-center gap-3 text-rose-500"><Calendar /> 請假管理 ({getDayOfWeekStr(selectedDate)})</h3></div>
             <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-100">
               <div className="grid grid-cols-2 gap-4">
                 {people.map(p => {
@@ -932,34 +1000,66 @@ const App = () => {
           </div>
         )}
 
-        {/* --- 彈出詳情視窗 (簽到) --- */}
+        {/* --- 彈出詳情視窗 (簽到 / 未簽到) --- */}
         {viewingCheckinsDate && (
           <div className="fixed inset-0 z-40 flex items-center justify-center px-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
             <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
               <div className="bg-blue-600 p-6 text-white flex justify-between items-center">
-                <div className="flex items-center gap-3"><UserCheck size={24} /><div><h3 className="font-black text-lg text-white">簽到人員名單</h3><p className="text-xs opacity-80 uppercase font-bold text-white/80">{viewingCheckinsDate}</p></div></div>
-                <button onClick={() => setViewingCheckinsDate(null)} className="p-2 hover:bg-white/20 rounded-xl transition-colors text-white"><X size={20}/></button>
+                <div className="flex items-center gap-3"><UserCheck size={24} /><div><h3 className="font-black text-lg text-white">出缺勤名單</h3><p className="text-xs opacity-80 uppercase font-bold text-white/80">{getDayOfWeekStr(viewingCheckinsDate)}</p></div></div>
+                <button onClick={() => { setViewingCheckinsDate(null); setCheckinModalTab('checkedIn'); }} className="p-2 hover:bg-white/20 rounded-xl transition-colors text-white"><X size={20}/></button>
               </div>
-              <div className="p-6 max-h-[60vh] overflow-y-auto custom-scrollbar">
+              
+              <div className="flex border-b border-slate-100 bg-slate-50">
+                <button onClick={() => setCheckinModalTab('checkedIn')} className={`flex-1 py-3 text-sm font-black transition-colors ${checkinModalTab === 'checkedIn' ? 'text-blue-600 border-b-2 border-blue-600 bg-white' : 'text-slate-400 hover:text-slate-600'}`}>
+                  已簽到 ({currentCheckins.length})
+                </button>
+                <button onClick={() => setCheckinModalTab('absent')} className={`flex-1 py-3 text-sm font-black transition-colors ${checkinModalTab === 'absent' ? 'text-rose-500 border-b-2 border-rose-500 bg-white' : 'text-slate-400 hover:text-slate-600'}`}>
+                  未簽到 ({absentPeople.length})
+                </button>
+              </div>
+
+              <div className="p-6 max-h-[50vh] overflow-y-auto custom-scrollbar">
                 <div className="space-y-3">
-                  {checkins.filter(c => c.date === viewingCheckinsDate).sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp)).map((c, i) => {
-                    const p = people.find(x => x.id === c.personId);
-                    return (
-                      <div key={c.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 shadow-sm">
-                        <span className="font-black text-slate-800 flex items-center gap-3"><span className="text-[10px] text-slate-300 w-4">{i+1}</span>{p?.name || "未知人員"}</span>
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-blue-600 font-mono font-black">{formatTime(c.timestamp)}</span>
-                          <button onClick={() => deleteCheckinRecord(c.id)} className="text-slate-300 hover:text-rose-500 transition-colors" title="刪除此紀錄">
-                            <Trash2 size={14} />
-                          </button>
+                  {checkinModalTab === 'checkedIn' ? (
+                    <>
+                      {currentCheckins.map((c, i) => {
+                        const p = people.find(x => x.id === c.personId);
+                        return (
+                          <div key={c.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 shadow-sm">
+                            <span className="font-black text-slate-800 flex items-center gap-3"><span className="text-[10px] text-slate-300 w-4">{i+1}</span>{p?.name || "未知人員"}</span>
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs text-blue-600 font-mono font-black">{formatTime(c.timestamp)}</span>
+                              {/* 刪除紀錄需管理員權限 */}
+                              <button onClick={() => {
+                                if (!isAuthenticatedAdmin) {
+                                  setTargetAdminTab('dashboard');
+                                  setShowPasswordModal(true);
+                                  return;
+                                }
+                                deleteCheckinRecord(c.id);
+                              }} className="text-slate-300 hover:text-rose-500 transition-colors" title="刪除此紀錄">
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {currentCheckins.length === 0 && <div className="text-center py-10 text-slate-400 italic font-bold">目前無簽到紀錄</div>}
+                    </>
+                  ) : (
+                    <>
+                      {absentPeople.map((p, i) => (
+                        <div key={p.id} className="flex items-center justify-between p-4 bg-rose-50/50 rounded-2xl border border-rose-100 shadow-sm">
+                          <span className="font-black text-slate-800 flex items-center gap-3"><span className="text-[10px] text-rose-300 w-4">{i+1}</span>{p.name}</span>
+                          <span className="text-[10px] bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-black uppercase">缺席</span>
                         </div>
-                      </div>
-                    );
-                  })}
-                  {checkins.filter(c => c.date === viewingCheckinsDate).length === 0 && <div className="text-center py-10 text-slate-400 italic font-bold">目前無簽到紀錄</div>}
+                      ))}
+                      {absentPeople.length === 0 && <div className="text-center py-10 text-emerald-500 italic font-bold">太棒了！所有應到人員皆已完成簽到</div>}
+                    </>
+                  )}
                 </div>
               </div>
-              <div className="p-6 border-t border-slate-50"><button onClick={()=>setViewingCheckinsDate(null)} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black hover:bg-slate-800 transition-all shadow-md">關閉詳情</button></div>
+              <div className="p-6 border-t border-slate-50"><button onClick={()=>{setViewingCheckinsDate(null); setCheckinModalTab('checkedIn');}} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black hover:bg-slate-800 transition-all shadow-md">關閉詳情</button></div>
             </div>
           </div>
         )}
@@ -969,7 +1069,7 @@ const App = () => {
           <div className="fixed inset-0 z-40 flex items-center justify-center px-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
             <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
               <div className="bg-rose-600 p-6 text-white flex justify-between items-center">
-                <div className="flex items-center gap-3"><UserMinus size={24} /><div><h3 className="font-black text-lg text-white">請假名單</h3><p className="text-xs opacity-80 uppercase font-bold text-white/80">{viewingLeavesDate}</p></div></div>
+                <div className="flex items-center gap-3"><UserMinus size={24} /><div><h3 className="font-black text-lg text-white">請假名單</h3><p className="text-xs opacity-80 uppercase font-bold text-white/80">{getDayOfWeekStr(viewingLeavesDate)}</p></div></div>
                 <button onClick={() => setViewingLeavesDate(null)} className="p-2 hover:bg-white/20 rounded-xl transition-colors text-white"><X size={20}/></button>
               </div>
               <div className="p-6 max-h-[60vh] overflow-y-auto custom-scrollbar">
@@ -981,7 +1081,15 @@ const App = () => {
                         <span className="font-black text-slate-800 flex items-center gap-3"><span className="text-[10px] text-rose-200 w-4">{i+1}</span>{p?.name || "未知人員"}</span>
                         <div className="flex items-center gap-3">
                           <span className="text-[10px] bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-black uppercase">標記請假</span>
-                          <button onClick={() => deleteLeaveRecord(l.id)} className="text-rose-300 hover:text-rose-600 transition-colors" title="刪除此紀錄">
+                          {/* 刪除請假紀錄需管理員權限 */}
+                          <button onClick={() => {
+                            if (!isAuthenticatedAdmin) {
+                              setTargetAdminTab('dashboard');
+                              setShowPasswordModal(true);
+                              return;
+                            }
+                            deleteLeaveRecord(l.id);
+                          }} className="text-rose-300 hover:text-rose-600 transition-colors" title="刪除此紀錄">
                             <Trash2 size={14} />
                           </button>
                         </div>
@@ -1019,7 +1127,7 @@ const App = () => {
                 <Lock size={48} />
               </div>
               <h3 className="text-xl font-black mb-2 text-slate-800 tracking-tight">管理員權限驗證</h3>
-              <p className="text-slate-500 text-sm mb-6 font-medium">請輸入密碼以進入管理頁面</p>
+              <p className="text-slate-500 text-sm mb-6 font-medium">請輸入密碼以進行此操作</p>
               <form onSubmit={handleAdminLogin} className="flex flex-col gap-3">
                 <input 
                   type="password" 
