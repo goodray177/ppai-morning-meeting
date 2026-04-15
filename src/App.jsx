@@ -722,7 +722,7 @@ const App = () => {
             <div className="flex justify-between items-end px-2">
               <div>
                 <h2 className="text-2xl font-black text-slate-800">出席數據報表</h2>
-                <p className="text-slate-400 text-sm">數據按月分組，點擊欄位內容可編輯 (需管理員權限)</p>
+                <p className="text-slate-400 text-sm">數據按月分組，點擊欄位內容可編輯 (分享者/請假管理需權限)</p>
               </div>
               <div className="flex gap-2">
                 <button onClick={handleExportFullData} className="bg-slate-900 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-lg shadow-slate-200 hover:bg-slate-800 transition-all"><Database size={18} /> JSON 備份</button>
@@ -776,30 +776,27 @@ const App = () => {
                             <tr key={s.date} className={s.date === todayStr ? "bg-blue-50/40" : "hover:bg-slate-50 transition-colors"}>
                               <td className="px-4 py-4 font-bold text-slate-700 whitespace-nowrap">{getDayOfWeekStr(s.date)}</td>
                               
-                              {/* 編輯場次名稱 */}
-                              <td className="px-4 py-4">
+                              {/* 編輯場次名稱 (免密碼，過長自動隱藏) */}
+                              <td className="px-4 py-4 max-w-[150px] sm:max-w-[200px]">
                                 {editingDate?.date === s.date && editingDate?.field === 'title' ? (
                                   <div className="flex items-center gap-2">
-                                    <input autoFocus value={tempEditValue} onChange={e=>setTempEditValue(e.target.value)} onKeyDown={e=>e.key==='Enter'&&saveMetadataField(s.date, 'title')} className="border border-blue-200 rounded-lg px-2 py-1 text-sm outline-none w-full shadow-inner" />
-                                    <button onClick={()=>saveMetadataField(s.date, 'title')} className="text-emerald-500 hover:bg-emerald-50 p-1 rounded"><Check size={16}/></button>
+                                    <input autoFocus value={tempEditValue} onChange={e=>setTempEditValue(e.target.value)} onKeyDown={e=>e.key==='Enter'&&saveMetadataField(s.date, 'title')} className="border border-blue-200 rounded-lg px-2 py-1 text-sm outline-none w-full shadow-inner min-w-[100px]" />
+                                    <button onClick={()=>saveMetadataField(s.date, 'title')} className="text-emerald-500 hover:bg-emerald-50 p-1 rounded flex-shrink-0"><Check size={16}/></button>
                                   </div>
                                 ) : (
-                                  <div className="flex items-center gap-2 group min-h-[32px] cursor-pointer" onClick={()=>{
-                                    if (!isAuthenticatedAdmin) {
-                                      setTargetAdminTab('dashboard');
-                                      setShowPasswordModal(true);
-                                      return;
-                                    }
+                                  <div className="flex items-center gap-2 group min-h-[32px] cursor-pointer min-w-0" onClick={()=>{
                                     setEditingDate({date: s.date, field: 'title'}); setTempEditValue(s.sessionName);
                                   }}>
-                                    <span className={s.sessionName ? "text-slate-700 font-bold" : "text-slate-300 italic text-xs"}>{s.sessionName || "點擊編輯"}</span>
-                                    <Edit3 size={12} className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                    <span className={`truncate ${s.sessionName ? "text-slate-700 font-bold" : "text-slate-300 italic text-xs"}`} title={s.sessionName || "點擊編輯"}>
+                                      {s.sessionName || "點擊編輯"}
+                                    </span>
+                                    <Edit3 size={12} className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                                   </div>
                                 )}
                               </td>
 
-                              {/* 編輯分享者 */}
-                              <td className="px-4 py-4">
+                              {/* 編輯分享者 (需密碼，不換行) */}
+                              <td className="px-4 py-4 whitespace-nowrap">
                                 {editingDate?.date === s.date && editingDate?.field === 'presenter' ? (
                                   <div className="flex items-center gap-2">
                                     <input autoFocus value={tempEditValue} onChange={e=>setTempEditValue(e.target.value)} onKeyDown={e=>e.key==='Enter'&&saveMetadataField(s.date, 'presenter')} className="border border-blue-200 rounded-lg px-2 py-1 text-sm outline-none w-full shadow-inner" />
@@ -814,7 +811,7 @@ const App = () => {
                                     }
                                     setEditingDate({date: s.date, field: 'presenter'}); setTempEditValue(s.presenter);
                                   }}>
-                                    <span className={s.presenter ? "text-blue-600 font-black" : "text-slate-300 italic text-xs"}>{s.presenter || "未指定"}</span>
+                                    <span className={s.presenter ? "text-blue-600 font-black" : "text-slate-300 italic text-xs"}>{s.presenter || "點擊編輯"}</span>
                                     <Edit3 size={12} className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                                   </div>
                                 )}
